@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>{{ job_dir.name }}</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 40px; background: #f6f8fb; color: #172033; }
+    main { max-width: 1000px; margin: auto; }
+    section { background: white; border: 1px solid #d8e0ea; border-radius: 8px; padding: 24px; margin-bottom: 20px; }
+    a.button { display: inline-block; margin: 6px 6px 6px 0; background: #1267b1; color: white; border-radius: 6px; padding: 9px 12px; text-decoration: none; font-weight: 700; }
+    pre { background: #eef2f7; padding: 14px; border-radius: 6px; overflow: auto; max-height: 420px; }
+  </style>
+</head>
+<body>
+<main>
+  <section>
+    <h1>{{ job_dir.name }}</h1>
+    <p>Status: {{ read_text(job_dir / "status.txt", "STARTED") }}</p>
+    <a href="/">Back</a>
+  </section>
+
+  <section>
+    <h2>Outputs</h2>
+
+    {% for file in outputs %}
+        {% set rel = file.relative_to(job_dir) %}
+
+        {% if file.suffix == ".bam" %}
+        <a class="button"
+           href="/download/{{ job_dir.name }}/{{ rel }}">
+           Download BAM
+        </a>
+        {% endif %}
+    {% endfor %}
+    {% if read_text(job_dir / "status.txt", "") == "COMPLETED" %}
+    <p>✅ QC Report Generated</p>
+    <p>✅ VCF Generated</p>
+    {% else %}
+    <p>⏳ Pipeline Running...</p>
+    {% endif %}
+</section>
+
+  <section>
+    <h2>Pipeline Log</h2>
+    <pre>{{ read_text(job_dir / "logs" / "pipeline.log", "Log not available yet.")[-12000:] }}</pre>
+  </section>
+</main>
+</body>
+</html>

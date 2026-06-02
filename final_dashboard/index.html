@@ -1,0 +1,56 @@
+<form action="/start" method="post" enctype="multipart/form-data">
+
+  <label>Sample name</label>
+  <input name="sample" value="sample_001" required>
+
+  <label>Input Method</label>
+  <select id="input_mode" name="input_mode">
+      <option value="select" selected>Select FASTQ already on server</option>
+      <option value="upload">Upload FASTQ through browser</option>
+  </select>
+
+  <div id="server_inputs">
+
+      <label>Server FASTQ R1</label>
+      <select name="r1_select">
+          {% for file in fastqs %}
+          <option value="{{ file.name }}">{{ file.name }}</option>
+          {% endfor %}
+      </select>
+
+      <label>Server FASTQ R2</label>
+      <select name="r2_select">
+          {% for file in fastqs %}
+          <option value="{{ file.name }}">{{ file.name }}</option>
+          {% endfor %}
+      </select>
+
+  </div>
+
+  <div id="upload_inputs" style="display:none;">
+
+      <label>Upload FASTQ R1</label>
+      <input name="r1_upload" type="file">
+
+      <label>Upload FASTQ R2</label>
+      <input name="r2_upload" type="file">
+
+  </div>
+
+  <button type="submit">Start Pipeline</button>
+
+</form>
+<script>
+function updateInputMode() {
+    const mode = document.getElementById("input_mode").value;
+
+    document.getElementById("server_inputs").style.display =
+        mode === "select" ? "block" : "none";
+
+    document.getElementById("upload_inputs").style.display =
+        mode === "upload" ? "block" : "none";
+}
+
+document.getElementById("input_mode").addEventListener("change", updateInputMode);
+updateInputMode();
+</script>

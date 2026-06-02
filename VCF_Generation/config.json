@@ -1,0 +1,18 @@
+{
+  "reference_fasta": "/mnt/d/NGS_Project/VCF_Generation/reference/genome/GrCh38/genome.fa",
+  "known_sites": [
+  "/mnt/d/NGS_Project/VCF_Generation/reference/Known_sites/snps/hapmap_3.3.vcf.gz",
+  "/mnt/d/NGS_Project/VCF_Generation/reference/Known_sites/snps/omni2.5.vcf.gz",
+  "/mnt/d/NGS_Project/VCF_Generation/reference/Known_sites/snps/phase1_highconf.vcf.gz"
+]
+  "tools": {
+    "fastqc": "fastqc",
+    "fastp": "fastp",
+    "bwa": "bwa",
+    "samtools": "samtools",
+    "gatk": "gatk"
+  },
+  "threads": 4,
+  "samtools_sort_memory": "1G",
+  "gatk_java_options": "-Xmx4g"
+}

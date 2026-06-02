@@ -1,0 +1,4 @@
+reference: "/mnt/d/NGS_References/hg38/hg38.fa"
+known_sites: "/mnt/d/NGS_References/hg38/dbsnp_146.hg38.vcf.gz"
+raw_dir: "/mnt/d/NGS_Project/gatk-pipeline/data/raw"
+threads: 4

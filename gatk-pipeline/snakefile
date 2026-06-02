@@ -1,0 +1,269 @@
+# ============================================================
+#  GATK VARIANT CALLING PIPELINE — SNAKEMAKE WORKFLOW
+#  Batch multi-sample support with automatic dependency handling
+#  Usage: snakemake --cores 8
+# ============================================================
+
+import os
+import glob
+
+# ─────────────────────────────────────────
+#  CONFIG
+# ─────────────────────────────────────────
+configfile: "config.yaml"
+
+REF         = config["reference"]
+KNOWN_SITES = config["known_sites"]
+RAW_DIR     = config["raw_dir"]
+THREADS     = config["threads"]
+
+# Auto-detect all samples from R1 FASTQ files
+SAMPLES = [
+    os.path.basename(f).replace("_R1.fastq.gz", "")
+    for f in glob.glob(f"{RAW_DIR}/*_R1.fastq.gz")
+]
+
+if not SAMPLES:
+    raise ValueError(f"No FASTQ files found in {RAW_DIR}/. Expected: sampleName_R1.fastq.gz")
+
+print(f"Detected {len(SAMPLES)} sample(s): {', '.join(SAMPLES)}")
+
+
+# ─────────────────────────────────────────
+#  FINAL TARGET
+# ─────────────────────────────────────────
+rule all:
+    input:
+        "results/variants/cohort.snps.filtered.vcf.gz",
+        "results/variants/cohort.indels.filtered.vcf.gz",
+        expand("results/variants/{sample}.g.vcf.gz", sample=SAMPLES)
+
+
+# ─────────────────────────────────────────
+#  RULE 1: Index Reference Genome
+# ─────────────────────────────────────────
+rule index_reference:
+    input:
+        REF
+    output:
+        bwt   = REF + ".bwt",
+        fai   = REF + ".fai",
+        dict  = REF.replace(".fa", ".dict")
+    log:
+        "results/logs/index_reference.log"
+    shell:
+        """
+        bwa index {input} 2>{log}
+        samtools faidx {input} 2>>{log}
+        gatk CreateSequenceDictionary -R {input} 2>>{log}
+        """
+
+
+# ─────────────────────────────────────────
+#  RULE 2: Align with BWA-MEM
+# ─────────────────────────────────────────
+rule align:
+    input:
+        r1   = RAW_DIR + "/{sample}_R1.fastq.gz",
+        r2   = RAW_DIR + "/{sample}_R2.fastq.gz",
+        ref  = REF,
+        bwt  = REF + ".bwt"
+    output:
+        bam  = "results/aligned/{sample}.bam",
+        bai  = "results/aligned/{sample}.bam.bai"
+    threads: THREADS
+    log:
+        "results/logs/{sample}.align.log"
+    shell:
+        """
+        bwa mem -t {threads} \
+          -R "@RG\\tID:{wildcards.sample}\\tSM:{wildcards.sample}\\tLB:lib1\\tPL:ILLUMINA" \
+          {input.ref} {input.r1} {input.r2} 2>{log} \
+        | samtools sort -@ {threads} -o {output.bam}
+        samtools index {output.bam}
+        """
+
+
+# ─────────────────────────────────────────
+#  RULE 3: Mark Duplicates
+# ─────────────────────────────────────────
+rule mark_duplicates:
+    input:
+        bam = "results/aligned/{sample}.bam"
+    output:
+        bam     = "results/marked_dups/{sample}.markdup.bam",
+        bai     = "results/marked_dups/{sample}.markdup.bam.bai",
+        metrics = "results/marked_dups/{sample}.metrics.txt"
+    log:
+        "results/logs/{sample}.markdup.log"
+    shell:
+        """
+        gatk MarkDuplicates \
+          -I {input.bam} \
+          -O {output.bam} \
+          -M {output.metrics} \
+          --TMP_DIR /tmp 2>{log}
+        samtools index {output.bam}
+        """
+
+
+# ─────────────────────────────────────────
+#  RULE 4: Base Quality Score Recalibration
+# ─────────────────────────────────────────
+rule base_recalibration:
+    input:
+        bam         = "results/marked_dups/{sample}.markdup.bam",
+        ref         = REF,
+        known_sites = KNOWN_SITES
+    output:
+        table = "results/bqsr/{sample}.recal.table"
+    log:
+        "results/logs/{sample}.bqsr_table.log"
+    shell:
+        """
+        gatk BaseRecalibrator \
+          -I {input.bam} \
+          -R {input.ref} \
+          --known-sites {input.known_sites} \
+          -O {output.table} 2>{log}
+        """
+
+rule apply_bqsr:
+    input:
+        bam   = "results/marked_dups/{sample}.markdup.bam",
+        ref   = REF,
+        table = "results/bqsr/{sample}.recal.table"
+    output:
+        bam   = "results/bqsr/{sample}.bqsr.bam",
+        bai   = "results/bqsr/{sample}.bqsr.bam.bai"
+    log:
+        "results/logs/{sample}.apply_bqsr.log"
+    shell:
+        """
+        gatk ApplyBQSR \
+          -I {input.bam} \
+          -R {input.ref} \
+          --bqsr-recal-file {input.table} \
+          -O {output.bam} 2>{log}
+        samtools index {output.bam}
+        """
+
+
+# ─────────────────────────────────────────
+#  RULE 5: HaplotypeCaller (per sample → gVCF)
+# ─────────────────────────────────────────
+rule haplotype_caller:
+    input:
+        bam = "results/marked_dups/{sample}.markdup.bam",
+        ref = REF
+    output:
+        gvcf = "results/variants/{sample}.g.vcf.gz"
+    threads: THREADS
+    log:
+        "results/logs/{sample}.haplotypecaller.log"
+    shell:
+        """
+        gatk HaplotypeCaller \
+          -R {input.ref} \
+          -I {input.bam} \
+          -O {output.gvcf} \
+          -ERC GVCF \
+          2>{log}
+        """
+
+
+# ─────────────────────────────────────────
+#  RULE 6: Combine GVCFs (batch)
+# ─────────────────────────────────────────
+rule combine_gvcfs:
+    input:
+        gvcfs = expand("results/variants/{sample}.g.vcf.gz", sample=SAMPLES),
+        ref   = REF
+    output:
+        combined = "results/variants/cohort.g.vcf.gz"
+    log:
+        "results/logs/combine_gvcfs.log"
+    run:
+        inputs = " ".join([f"-V {v}" for v in input.gvcfs])
+        shell(f"""
+        gatk CombineGVCFs \
+          -R {input.ref} \
+          {inputs} \
+          -O {output.combined} 2>{log}
+        """)
+
+
+# ─────────────────────────────────────────
+#  RULE 7: Joint Genotyping
+# ─────────────────────────────────────────
+rule genotype_gvcfs:
+    input:
+        gvcf = "results/variants/cohort.g.vcf.gz",
+        ref  = REF
+    output:
+        vcf  = "results/variants/cohort.vcf.gz"
+    log:
+        "results/logs/genotype_gvcfs.log"
+    shell:
+        """
+        gatk GenotypeGVCFs \
+          -R {input.ref} \
+          -V {input.gvcf} \
+          -O {output.vcf} 2>{log}
+        """
+
+
+# ─────────────────────────────────────────
+#  RULE 8a: Filter SNPs
+# ─────────────────────────────────────────
+rule filter_snps:
+    input:
+        vcf = "results/variants/cohort.vcf.gz",
+        ref = REF
+    output:
+        snps          = "results/variants/cohort.snps.vcf.gz",
+        snps_filtered = "results/variants/cohort.snps.filtered.vcf.gz"
+    log:
+        "results/logs/filter_snps.log"
+    shell:
+        """
+        gatk SelectVariants -R {input.ref} -V {input.vcf} \
+          --select-type-to-include SNP \
+          -O {output.snps} 2>{log}
+
+        gatk VariantFiltration -R {input.ref} \
+          -V {output.snps} \
+          --filter-expression "QD < 2.0"              --filter-name "QD2" \
+          --filter-expression "FS > 60.0"             --filter-name "FS60" \
+          --filter-expression "MQ < 40.0"             --filter-name "MQ40" \
+          --filter-expression "MQRankSum < -12.5"     --filter-name "MQRankSum-12.5" \
+          --filter-expression "ReadPosRankSum < -8.0" --filter-name "ReadPosRankSum-8" \
+          -O {output.snps_filtered} 2>>{log}
+        """
+
+
+# ─────────────────────────────────────────
+#  RULE 8b: Filter INDELs
+# ─────────────────────────────────────────
+rule filter_indels:
+    input:
+        vcf = "results/variants/cohort.vcf.gz",
+        ref = REF
+    output:
+        indels          = "results/variants/cohort.indels.vcf.gz",
+        indels_filtered = "results/variants/cohort.indels.filtered.vcf.gz"
+    log:
+        "results/logs/filter_indels.log"
+    shell:
+        """
+        gatk SelectVariants -R {input.ref} -V {input.vcf} \
+          --select-type-to-include INDEL \
+          -O {output.indels} 2>{log}
+
+        gatk VariantFiltration -R {input.ref} \
+          -V {output.indels} \
+          --filter-expression "QD < 2.0"               --filter-name "QD2" \
+          --filter-expression "FS > 200.0"             --filter-name "FS200" \
+          --filter-expression "ReadPosRankSum < -20.0" --filter-name "ReadPosRankSum-20" \
+          -O {output.indels_filtered} 2>>{log}
+        """

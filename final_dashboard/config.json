@@ -1,0 +1,35 @@
+{
+  "reference_fasta": "/mnt/d/NGS_Project/VCF_Generation/reference/genome/GrCh38/genome.fa",
+  "known_sites": [
+    "/mnt/d/NGS_Project/VCF_Generation/reference/Known_sites/snps/hapmap_3.3.vcf.gz",
+    "/mnt/d/NGS_Project/VCF_Generation/reference/Known_sites/snps/omni2.5.vcf.gz",
+    "/mnt/d/NGS_Project/VCF_Generation/reference/Known_sites/snps/phase1_highconf.vcf.gz"
+  ],
+  "tools": {
+  "fastqc": "/home/puja_g/miniconda3/bin/fastqc",
+  "fastp": "/home/puja_g/miniconda3/bin/fastp",
+  "bwa": "/home/puja_g/miniconda3/bin/bwa",
+  "samtools": "/home/puja_g/miniconda3/bin/samtools",
+  "gatk": "/home/puja_g/miniconda3/bin/gatk"
+},
+"threads": 4,
+  "samtools_sort_memory": "1G",
+  "gatk_java_options": "-Xmx4g",
+  "annotation": {
+    "enabled": false,
+    "perl": "perl",
+    "annovar_dir": "/mnt/d/NGS_Project/VCF_Generation/tools/annovar",
+    "humandb": "/mnt/d/NGS_Project/VCF_Generation/tools/annovar/humandb",
+    "buildver": "hg38",
+    "protocols": [
+      "refGene",
+      "ensGene",
+      "clinvar_20220320"
+    ],
+    "operations": [
+      "g",
+      "g",
+      "f"
+    ]
+  }
+}
